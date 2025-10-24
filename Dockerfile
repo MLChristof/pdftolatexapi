@@ -7,10 +7,15 @@ RUN apt-get update && apt-get install -yqq --no-install-recommends \
     texlive-base \
     texlive-latex-recommended \
     texlive-latex-extra \
+    texlive-lang-recommended \
+    texlive-fonts-recommended \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up the application directory
 WORKDIR /app
+
+# Copy the security configuration into the system-wide TeX config directory
+COPY texmf.cnf /etc/texmf/web2c/texmf.cnf
 
 # Copy the requirements file and install Python dependencies
 COPY requirements.txt .

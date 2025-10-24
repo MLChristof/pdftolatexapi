@@ -1,0 +1,13 @@
+% texmf.cnf - Security Configuration for TeX Live
+
+% (p) Restrict shell_escape to a predefined, safe list of commands.
+% This is the most critical security setting.
+shell_escape = p
+
+% This is the whitelist of commands allowed when shell_escape is 'p'.
+shell_escape_commands = bibtex,bibtex8,kpsewhich,makeindex,mpost
+
+% (p) 'paranoid' mode for file I/O. Disallows reading/writing to files
+% outside of the current working directory. Prevents access to system files.
+openin_any = p
+openout_any = p

@@ -3,20 +3,39 @@ import subprocess
 import tempfile
 from flask import Flask, request, send_file, jsonify
 
-# Initialize the Flask application
 app = Flask(__name__)
+
+# --- NEW: SECURITY SCANNER ---
+# Define a list of TeX commands that are too dangerous to allow.
+# \write18 is shell escape. The others can access the filesystem.
+DANGEROUS_COMMANDS = [
+    "\\write18",
+    "\\input",
+    "\\openin",
+    "\\openout",
+    "\\def",          # Can be used to redefine safe commands maliciously
+    "\\unexpanded",   # Can be used to bypass simple string checks
+    "\\obeyspaces",   # Can obscure malicious code
+]
+# -----------------------------
+
 
 @app.route('/compile', methods=['POST'])
 def compile_tex():
-    """
-    Compiles TeX content received in a POST request and returns the PDF.
-    Expects the raw .tex content in the request body.
-    """
     tex_content = request.get_data(as_text=True)
     if not tex_content:
         return jsonify({"error": "No .tex content provided in the request body."}), 400
 
-    # Use a temporary directory that cleans itself up automatically
+    # --- NEW: Run the security check ---
+    for command in DANGEROUS_COMMANDS:
+        if command in tex_content:
+            return jsonify({
+                "error": "Security check failed.",
+                "message": f"Disallowed command '{command}' found in input."
+            }), 403 # 403 Forbidden is a fitting status code
+
+    # -----------------------------------
+
     with tempfile.TemporaryDirectory() as temp_dir:
         tex_filename = "document.tex"
         pdf_filename = "document.pdf"
@@ -25,13 +44,9 @@ def compile_tex():
         tex_filepath = os.path.join(temp_dir, tex_filename)
         pdf_filepath = os.path.join(temp_dir, pdf_filename)
 
-        # Write the received TeX content to a file
         with open(tex_filepath, 'w') as f:
             f.write(tex_content)
 
-        # Run the pdflatex command securely
-        # -interaction=nonstopmode : Prevents the compiler from pausing for user input on errors.
-        # -output-directory       : Ensures all generated files stay in our temp directory.
         command = [
             "pdflatex",
             "-interaction=nonstopmode",
@@ -40,20 +55,20 @@ def compile_tex():
         ]
 
         try:
-            # Set a timeout to prevent long-running, malicious compilations
             proc = subprocess.run(command, capture_output=True, text=True, timeout=30)
 
-            # If compilation failed, return the error log
             if proc.returncode != 0:
                 log_filepath = os.path.join(temp_dir, log_filename)
-                with open(log_filepath, 'r') as log_file:
-                    log_content = log_file.read()
+                log_content = ""
+                # It's possible for the log file to not be created on a fatal error
+                if os.path.exists(log_filepath):
+                    with open(log_filepath, 'r') as log_file:
+                        log_content = log_file.read()
                 return jsonify({
                     "error": "PDF compilation failed.",
                     "logs": log_content
                 }), 400
 
-            # If successful, send the generated PDF file back
             return send_file(
                 pdf_filepath,
                 as_attachment=True,
