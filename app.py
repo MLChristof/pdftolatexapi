@@ -10,7 +10,7 @@ app = Flask(__name__)
 swagger_template = {
     "swagger": "2.0",
     "info": {
-        "title": "PDF to LaTeX Compilation API",
+        "title": "LaTeX to PDF Compilation API",
         "description": "Compile raw LaTeX source (.tex) to PDF securely. Security scanning blocks dangerous commands.",
         "version": "1.0.0"
     },
@@ -42,9 +42,9 @@ def api_docs():
                     description: HTML documentation page
         """
         doc_html = '''<html>
-        <head><title>PDF to LaTeX API</title></head>
+        <head><title>LaTeX to PDF API</title></head>
         <body>
-                <h1>PDF to LaTeX API</h1>
+                <h1>LaTeX to PDF API</h1>
                 <p>Interactive Swagger UI: <a href="/apidocs">/apidocs</a></p>
                 <h2>Quick example</h2>
                 <pre>curl -X POST --data-binary @testfile.tex http://localhost:5000/compile --output output.pdf</pre>
