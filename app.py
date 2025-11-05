@@ -2,45 +2,59 @@ import os
 import subprocess
 import tempfile
 from flask import Flask, request, send_file, jsonify
+from flasgger import Swagger
 
 app = Flask(__name__)
+
+# Swagger configuration template (minimal). Adjust versions/info as needed.
+swagger_template = {
+    "swagger": "2.0",
+    "info": {
+        "title": "PDF to LaTeX Compilation API",
+        "description": "Compile raw LaTeX source (.tex) to PDF securely. Security scanning blocks dangerous commands.",
+        "version": "1.0.0"
+    },
+    "schemes": ["http"],
+    "basePath": "/",
+    "tags": [
+        {"name": "compile", "description": "Compilation operations"},
+        {"name": "system", "description": "System/health endpoints"}
+    ]
+}
+
+swagger = Swagger(app, template=swagger_template)
 
 # Root route for API documentation
 @app.route('/')
 def api_docs():
-    """API Documentation page."""
-    doc_html = '''
-    <html>
-    <head><title>PDF to LaTeX API Documentation</title></head>
-    <body>
-        <h1>PDF to LaTeX API Documentation</h1>
-        <h2>Endpoints</h2>
-        <ul>
-            <li><strong>POST /compile</strong><br>
-                <em>Request:</em> Raw LaTeX (.tex) content in the body<br>
-                <em>Response:</em> PDF file (application/pdf) or error JSON<br>
-                <em>Security:</em> Disallows dangerous TeX commands (e.g., \write18, \input, etc.)<br>
-            </li>
-        </ul>
-        <h2>Example Usage</h2>
-        <pre>
-        curl -X POST --data-binary @testfile.tex http://localhost:5000/compile --output output.pdf
-        </pre>
-        <h2>Error Codes</h2>
-        <ul>
-            <li>400: Bad request (missing or invalid .tex content)</li>
-            <li>403: Forbidden (dangerous TeX command detected)</li>
-            <li>408: Timeout (compilation took too long)</li>
-            <li>500: Internal server error</li>
-        </ul>
-    </body>
-    </html>
-    '''
-    return doc_html, 200, {'Content-Type': 'text/html'}
+        """
+        Landing page.
+        ---
+        get:
+            tags:
+                - system
+            summary: Simple HTML landing page
+            description: Returns a human-readable HTML page with basic usage info. For interactive API docs visit /apidocs.
+            produces:
+                - text/html
+            responses:
+                200:
+                    description: HTML documentation page
+        """
+        doc_html = '''<html>
+        <head><title>PDF to LaTeX API</title></head>
+        <body>
+                <h1>PDF to LaTeX API</h1>
+                <p>Interactive Swagger UI: <a href="/apidocs">/apidocs</a></p>
+                <h2>Quick example</h2>
+                <pre>curl -X POST --data-binary @testfile.tex http://localhost:5000/compile --output output.pdf</pre>
+        </body>
+        </html>'''
+        return doc_html, 200, {'Content-Type': 'text/html'}
 
-# --- NEW: SECURITY SCANNER ---
-# Define a list of TeX commands that are too dangerous to allow.
-# \write18 is shell escape. The others can access the filesystem.
+ # --- NEW: SECURITY SCANNER ---
+ # Define a list of TeX commands that are too dangerous to allow.
+ # \write18 is shell escape. The others can access the filesystem.
 DANGEROUS_COMMANDS = [
     "\\write18",
     "\\input",
@@ -55,20 +69,50 @@ DANGEROUS_COMMANDS = [
 
 @app.route('/compile', methods=['POST'])
 def compile_tex():
+    """
+    Compile LaTeX source to PDF.
+    ---
+    post:
+      tags:
+        - compile
+      summary: Compile LaTeX (.tex) content into a PDF
+      consumes:
+        - text/plain
+      produces:
+        - application/pdf
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          description: Raw LaTeX source (.tex) content
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Successfully compiled PDF.
+        400:
+          description: Compilation failed or bad input.
+        403:
+          description: Security check failed (dangerous command detected).
+        408:
+          description: Compilation timed out.
+        500:
+          description: Internal server error.
+    """
     tex_content = request.get_data(as_text=True)
     if not tex_content:
         return jsonify({"error": "No .tex content provided in the request body."}), 400
 
-    # --- NEW: Run the security check ---
+    # Security check of dangerous commands
     for command in DANGEROUS_COMMANDS:
         if command in tex_content:
             return jsonify({
                 "error": "Security check failed.",
                 "message": f"Disallowed command '{command}' found in input."
-            }), 403 # 403 Forbidden is a fitting status code
+            }), 403
 
-    # -----------------------------------
-
+    # Compile using a temporary directory
     with tempfile.TemporaryDirectory() as temp_dir:
         tex_filename = "document.tex"
         pdf_filename = "document.pdf"
@@ -93,7 +137,6 @@ def compile_tex():
             if proc.returncode != 0:
                 log_filepath = os.path.join(temp_dir, log_filename)
                 log_content = ""
-                # It's possible for the log file to not be created on a fatal error
                 if os.path.exists(log_filepath):
                     with open(log_filepath, 'r') as log_file:
                         log_content = log_file.read()
@@ -113,6 +156,28 @@ def compile_tex():
             return jsonify({"error": "Compilation timed out after 30 seconds."}), 408
         except Exception as e:
             return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+@app.route('/health', methods=['GET'])
+def health():
+        """
+        Health check.
+        ---
+        get:
+            tags:
+                - system
+            summary: Health check endpoint
+            description: Returns basic service health information.
+            produces:
+                - application/json
+            responses:
+                200:
+                    description: Service is healthy.
+        """
+        from shutil import which
+        return jsonify({
+                "status": "ok",
+                "pdflatex_present": which("pdflatex") is not None
+        }), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
