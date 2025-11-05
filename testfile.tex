@@ -1,4 +1,45 @@
 \documentclass{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
 \begin{document}
-Hello, world.
+
+\title{PDF to LaTeX API Test Document}
+\author{Test Author}
+\date{\today}
+\maketitle
+
+\section{Introduction}
+This is a more complex test document for the PDF to LaTeX API. It includes sections, math, a table, and an image placeholder.
+
+\section{Math Example}
+Here is an inline equation: $E=mc^2$.
+
+And a displayed equation:
+\begin{equation}
+\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
+\end{equation}
+
+\section{Table Example}
+\begin{table}[h!]
+\centering
+\begin{tabular}{|c|c|c|}
+\hline
+Item & Quantity & Price \\
+\hline
+Apples & 5 & $3.00$ \\
+Bananas & 7 & $2.50$ \\
+Oranges & 3 & $4.00$ \\
+\hline
+\end{tabular}
+\caption{Fruit Prices}
+\end{table}
+
+\section{Image Example}
+% Uncomment and add a valid image file to test image inclusion
+%\includegraphics[width=0.5\textwidth]{example-image}
+
+\section{Links}
+For more information, visit \href{https://www.latex-project.org}{LaTeX Project}.
+
 \end{document}

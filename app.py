@@ -5,6 +5,39 @@ from flask import Flask, request, send_file, jsonify
 
 app = Flask(__name__)
 
+# Root route for API documentation
+@app.route('/')
+def api_docs():
+    """API Documentation page."""
+    doc_html = '''
+    <html>
+    <head><title>PDF to LaTeX API Documentation</title></head>
+    <body>
+        <h1>PDF to LaTeX API Documentation</h1>
+        <h2>Endpoints</h2>
+        <ul>
+            <li><strong>POST /compile</strong><br>
+                <em>Request:</em> Raw LaTeX (.tex) content in the body<br>
+                <em>Response:</em> PDF file (application/pdf) or error JSON<br>
+                <em>Security:</em> Disallows dangerous TeX commands (e.g., \write18, \input, etc.)<br>
+            </li>
+        </ul>
+        <h2>Example Usage</h2>
+        <pre>
+        curl -X POST --data-binary @testfile.tex http://localhost:5000/compile --output output.pdf
+        </pre>
+        <h2>Error Codes</h2>
+        <ul>
+            <li>400: Bad request (missing or invalid .tex content)</li>
+            <li>403: Forbidden (dangerous TeX command detected)</li>
+            <li>408: Timeout (compilation took too long)</li>
+            <li>500: Internal server error</li>
+        </ul>
+    </body>
+    </html>
+    '''
+    return doc_html, 200, {'Content-Type': 'text/html'}
+
 # --- NEW: SECURITY SCANNER ---
 # Define a list of TeX commands that are too dangerous to allow.
 # \write18 is shell escape. The others can access the filesystem.

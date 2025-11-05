@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -yqq --no-install-recommends \
     texlive-base \
     texlive-latex-recommended \
     texlive-latex-extra \
-    texlive-lang-recommended \
+    texlive-lang-european \
     texlive-fonts-recommended \
     && rm -rf /var/lib/apt/lists/*
 
