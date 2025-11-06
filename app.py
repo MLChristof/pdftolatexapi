@@ -1,3 +1,12 @@
+"""
+LaTeX to PDF Compilation API
+
+Enterprise-grade Flask app for compiling LaTeX source to PDF with security scanning, logging, and health checks.
+Follows Python best practices and is ready for Azure deployment.
+"""
+
+import logging
+from typing import Any
 import os
 import subprocess
 import tempfile
@@ -5,6 +14,14 @@ from flask import Flask, request, send_file, jsonify
 from flasgger import Swagger
 
 app = Flask(__name__)
+
+# Configure logging for enterprise monitoring
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
 
 # Swagger configuration template (minimal). Adjust versions/info as needed.
 swagger_template = {
@@ -26,31 +43,31 @@ swagger = Swagger(app, template=swagger_template)
 
 # Root route for API documentation
 @app.route('/')
-def api_docs():
-        """
-        Landing page.
-        ---
-        get:
-            tags:
-                - system
-            summary: Simple HTML landing page
-            description: Returns a human-readable HTML page with basic usage info. For interactive API docs visit /apidocs.
-            produces:
-                - text/html
-            responses:
-                200:
-                    description: HTML documentation page
-        """
-        doc_html = '''<html>
-        <head><title>LaTeX to PDF API</title></head>
-        <body>
-                <h1>LaTeX to PDF API</h1>
-                <p>Interactive Swagger UI: <a href="/apidocs">/apidocs</a></p>
-                <h2>Quick example</h2>
-                <pre>curl -X POST --data-binary @testfile.tex http://localhost:5000/compile --output output.pdf</pre>
-        </body>
-        </html>'''
-        return doc_html, 200, {'Content-Type': 'text/html'}
+def api_docs() -> tuple[str, int, dict]:
+    """
+    Landing page.
+    ---
+    get:
+        tags:
+            - system
+        summary: Simple HTML landing page
+        description: Returns a human-readable HTML page with basic usage info. For interactive API docs visit /apidocs.
+        produces:
+            - text/html
+        responses:
+            200:
+                description: HTML documentation page
+    """
+    doc_html = '''<html>
+    <head><title>LaTeX to PDF API</title></head>
+    <body>
+        <h1>LaTeX to PDF API</h1>
+        <p>Interactive Swagger UI: <a href="/apidocs">/apidocs</a></p>
+        <h2>Quick example</h2>
+        <pre>curl -X POST --data-binary @testfile.tex http://localhost:5000/compile --output output.pdf</pre>
+    </body>
+    </html>'''
+    return doc_html, 200, {'Content-Type': 'text/html'}
 
  # --- NEW: SECURITY SCANNER ---
  # Define a list of TeX commands that are too dangerous to allow.
@@ -64,11 +81,11 @@ DANGEROUS_COMMANDS = [
     "\\unexpanded",   # Can be used to bypass simple string checks
     "\\obeyspaces",   # Can obscure malicious code
 ]
-# -----------------------------
+ # -----------------------------
 
 
 @app.route('/compile', methods=['POST'])
-def compile_tex():
+def compile_tex() -> Any:
     """
     Compile LaTeX source to PDF.
     ---
@@ -102,11 +119,13 @@ def compile_tex():
     """
     tex_content = request.get_data(as_text=True)
     if not tex_content:
+        logger.warning("No .tex content provided in the request body.")
         return jsonify({"error": "No .tex content provided in the request body."}), 400
 
     # Security check of dangerous commands
     for command in DANGEROUS_COMMANDS:
         if command in tex_content:
+            logger.warning(f"Disallowed command '{command}' found in input.")
             return jsonify({
                 "error": "Security check failed.",
                 "message": f"Disallowed command '{command}' found in input."
@@ -140,11 +159,13 @@ def compile_tex():
                 if os.path.exists(log_filepath):
                     with open(log_filepath, 'r') as log_file:
                         log_content = log_file.read()
+                logger.error("PDF compilation failed.")
                 return jsonify({
                     "error": "PDF compilation failed.",
                     "logs": log_content
                 }), 400
 
+            logger.info("PDF compilation succeeded.")
             return send_file(
                 pdf_filepath,
                 as_attachment=True,
@@ -153,31 +174,37 @@ def compile_tex():
             )
 
         except subprocess.TimeoutExpired:
+            logger.error("Compilation timed out after 30 seconds.")
             return jsonify({"error": "Compilation timed out after 30 seconds."}), 408
         except Exception as e:
+            logger.error(f"An unexpected error occurred: {str(e)}", exc_info=True)
             return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 @app.route('/health', methods=['GET'])
-def health():
-        """
-        Health check.
-        ---
-        get:
-            tags:
-                - system
-            summary: Health check endpoint
-            description: Returns basic service health information.
-            produces:
-                - application/json
-            responses:
-                200:
-                    description: Service is healthy.
-        """
-        from shutil import which
-        return jsonify({
-                "status": "ok",
-                "pdflatex_present": which("pdflatex") is not None
-        }), 200
+def health() -> Any:
+    """
+    Health check.
+    ---
+    get:
+        tags:
+            - system
+        summary: Health check endpoint
+        description: Returns basic service health information.
+        produces:
+            - application/json
+        responses:
+            200:
+                description: Service is healthy.
+    """
+    from shutil import which
+    status = {
+        "status": "ok",
+        "pdflatex_present": which("pdflatex") is not None
+    }
+    logger.info(f"Health check: {status}")
+    return jsonify(status), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    port = int(os.getenv("PDFTOLATEX_PORT", "5000"))
+    logger.info(f"Starting app on port {port}")
+    app.run(host='0.0.0.0', port=port)
