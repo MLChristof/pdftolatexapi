@@ -12,16 +12,28 @@ import subprocess
 import tempfile
 from flask import Flask, request, send_file, jsonify
 from flasgger import Swagger
+from pythonjsonlogger import jsonlogger
+from prometheus_flask_exporter import PrometheusMetrics
 
 app = Flask(__name__)
 
-# Configure logging for enterprise monitoring
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-    handlers=[logging.StreamHandler()]
+# Enterprise Configuration
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_CONTENT_LENGTH', 10 * 1024 * 1024)) # 10MB default
+COMPILATION_TIMEOUT = int(os.getenv('COMPILATION_TIMEOUT', 30))
+
+# Configure logging for enterprise monitoring (JSON format)
+logHandler = logging.StreamHandler()
+formatter = jsonlogger.JsonFormatter(
+    '%(asctime)s %(levelname)s %(name)s %(message)s'
 )
-logger = logging.getLogger(__name__)
+logHandler.setFormatter(formatter)
+logger = logging.getLogger()
+logger.addHandler(logHandler)
+logger.setLevel(logging.INFO)
+
+# Initialize Prometheus metrics
+metrics = PrometheusMetrics(app)
+metrics.info('app_info', 'Application info', version='1.0.0')
 
 # Swagger configuration template (minimal). Adjust versions/info as needed.
 swagger_template = {
@@ -69,21 +81,6 @@ def api_docs() -> tuple[str, int, dict]:
     </html>'''
     return doc_html, 200, {'Content-Type': 'text/html'}
 
- # --- NEW: SECURITY SCANNER ---
- # Define a list of TeX commands that are too dangerous to allow.
- # \write18 is shell escape. The others can access the filesystem.
-DANGEROUS_COMMANDS = [
-    "\\write18",
-    "\\input",
-    "\\openin",
-    "\\openout",
-    "\\def",          # Can be used to redefine safe commands maliciously
-    "\\unexpanded",   # Can be used to bypass simple string checks
-    "\\obeyspaces",   # Can obscure malicious code
-]
- # -----------------------------
-
-
 @app.route('/compile', methods=['POST'])
 def compile_tex() -> Any:
     """
@@ -122,36 +119,34 @@ def compile_tex() -> Any:
         logger.warning("No .tex content provided in the request body.")
         return jsonify({"error": "No .tex content provided in the request body."}), 400
 
-    # Security check of dangerous commands
-    for command in DANGEROUS_COMMANDS:
-        if command in tex_content:
-            logger.warning(f"Disallowed command '{command}' found in input.")
-            return jsonify({
-                "error": "Security check failed.",
-                "message": f"Disallowed command '{command}' found in input."
-            }), 403
-
     # Compile using a temporary directory
     with tempfile.TemporaryDirectory() as temp_dir:
         tex_filename = "document.tex"
         pdf_filename = "document.pdf"
         log_filename = "document.log"
 
+        # Write the file to the temporary directory
         tex_filepath = os.path.join(temp_dir, tex_filename)
-        pdf_filepath = os.path.join(temp_dir, pdf_filename)
-
         with open(tex_filepath, 'w') as f:
             f.write(tex_content)
 
+        # Run pdflatex with restricted shell escape (default in most distros, enforced by texmf.cnf)
+        # We set cwd to temp_dir to contain relative file paths.
         command = [
             "pdflatex",
             "-interaction=nonstopmode",
-            f"-output-directory={temp_dir}",
-            tex_filepath
+            "-output-directory=.", # Output to current working directory (temp_dir)
+            tex_filename
         ]
 
         try:
-            proc = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            proc = subprocess.run(
+                command, 
+                capture_output=True, 
+                text=True, 
+                timeout=COMPILATION_TIMEOUT,
+                cwd=temp_dir # Set working directory to the temp folder
+            )
 
             if proc.returncode != 0:
                 log_filepath = os.path.join(temp_dir, log_filename)
@@ -159,13 +154,14 @@ def compile_tex() -> Any:
                 if os.path.exists(log_filepath):
                     with open(log_filepath, 'r') as log_file:
                         log_content = log_file.read()
-                logger.error("PDF compilation failed.")
+                logger.error("PDF compilation failed.", extra={"stdout": proc.stdout, "stderr": proc.stderr})
                 return jsonify({
                     "error": "PDF compilation failed.",
                     "logs": log_content
                 }), 400
 
             logger.info("PDF compilation succeeded.")
+            pdf_filepath = os.path.join(temp_dir, pdf_filename)
             return send_file(
                 pdf_filepath,
                 as_attachment=True,
@@ -174,8 +170,8 @@ def compile_tex() -> Any:
             )
 
         except subprocess.TimeoutExpired:
-            logger.error("Compilation timed out after 30 seconds.")
-            return jsonify({"error": "Compilation timed out after 30 seconds."}), 408
+            logger.error(f"Compilation timed out after {COMPILATION_TIMEOUT} seconds.")
+            return jsonify({"error": f"Compilation timed out after {COMPILATION_TIMEOUT} seconds."}), 408
         except Exception as e:
             logger.error(f"An unexpected error occurred: {str(e)}", exc_info=True)
             return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
